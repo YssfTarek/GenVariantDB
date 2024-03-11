@@ -6,6 +6,7 @@ from .utils import MongoConnect
 import pandas as pd
 import json
 from .vcf_tojson import vcf_to_json
+from .makeManifest import makeManifest
 
 load_dotenv()
 
@@ -14,6 +15,27 @@ DB = os.getenv("DB")
 collection = os.getenv("Collection")
 
 # Create your views here.
+
+def writeManifest(request):
+    if request.method == "POST":
+        path_unicode  = request.body.decode("UTF-8")
+        path_data = json.loads(path_unicode)
+        path = path_data["path"]
+
+        manifest = makeManifest(path)
+
+        for i in range(len(manifest)):
+            item = manifest[i]
+            print("You will now process file: ",i)
+            data = json.loads(vcf_to_json(item))
+            db_handle = MongoConnect(DB_URL, DB, collection)
+            db_handle.insert_one(data)
+
+        return HttpResponse("Data has been submitted and saved", status=201)
+    
+    else:
+        return HttpResponse("Invalid request", status=400)
+
 
 def write(request):
     if request.method == "POST":
