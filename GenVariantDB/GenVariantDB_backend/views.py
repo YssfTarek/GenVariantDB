@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from django.http import JsonResponse
+from django.http import HttpResponse
 import os
 from dotenv import load_dotenv
 from .utils import MongoConnect
@@ -16,6 +16,6 @@ def connect(request):
     db_handle = MongoConnect(DB_URL, DB, collection)
 
     if request.method == "GET":
-        return JsonResponse({"message":"Hello, you are connected to Mongodb."})
+        return HttpResponse("Successfully connected to Mongodb", status=200)
     else:
-        return JsonResponse({"message":"Invalid request."})
+        return HttpResponse("Invalid Request", status=400)
