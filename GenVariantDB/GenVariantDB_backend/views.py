@@ -1,5 +1,6 @@
+from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 import os
 from dotenv import load_dotenv
 from .utils import MongoConnect
@@ -16,6 +17,7 @@ collection = os.getenv("Collection")
 
 # Create your views here.
 
+@csrf_exempt
 def writeManifest(request):
     if request.method == "POST":
         path_unicode  = request.body.decode("UTF-8")
