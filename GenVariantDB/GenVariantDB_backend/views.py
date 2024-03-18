@@ -1,6 +1,6 @@
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import render
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 import os
 from dotenv import load_dotenv
 from .utils import MongoConnect
@@ -41,23 +41,6 @@ def writeManifest(request):
     else:
         return HttpResponse("Invalid request", status=400)
 
-
-def write(request):
-    if request.method == "POST":
-        file = request.FILES["file"]
-        df = pd.read_csv(file, header=None)
-        manifest = df.squeeze()
-        
-        for i in range(len(manifest)):
-            item = manifest[i]
-            print("You will now process file: ",i)
-            data = json.loads(vcf_to_json(item))
-            db_handle = MongoConnect(DB_URL, DB, collection)
-            db_handle.insert_one(data)
-
-        return HttpResponse("Successfully uploaded samples to MongoDB", status=201)
-    else:
-        return HttpResponse("Invalid request", status=400)
 
 def connect(request):
     db_handle = MongoConnect(DB_URL, DB, collection)
