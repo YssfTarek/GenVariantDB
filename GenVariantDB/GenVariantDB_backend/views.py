@@ -8,6 +8,7 @@ import pandas as pd
 import json
 from .vcf_tojson import vcf_to_json
 from .makeManifest import makeManifest
+from datetime import datetime
 
 load_dotenv()
 
@@ -30,6 +31,8 @@ def writeManifest(request):
             item = manifest[i]
             print("You will now process file: ",i)
             data = json.loads(vcf_to_json(item))
+            dt = datetime.now()
+            data["Timestamp"] = dt
             db_handle = MongoConnect(DB_URL, DB, collection)
             db_handle.insert_one(data)
 

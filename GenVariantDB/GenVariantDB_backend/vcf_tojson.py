@@ -4,7 +4,7 @@ import json
 def vcf_to_json(input):
     print ("Processing file: ", input)
     #read in vcf file as pd
-    df = pd.read_csv(input, sep="\t", header=None)
+    df = pd.read_csv(input, sep="\t", header=None, skiprows=64)
 
     for index, row in df.iterrows():
         if row[0] == "#CHROM":
@@ -99,9 +99,11 @@ def vcf_to_json(input):
 
     #join the format section to the rest of the data for each variant
     patient = attach_section(patient, format_json_int, "FORMAT")
-
+    
     named_vars = {"pName":patient_name, "variants":patient}
+
 
     print("processing complete")
     #write data out to json file
-    return json.dumps(named_vars)
+    output = json.dumps(named_vars)
+    return (output)
