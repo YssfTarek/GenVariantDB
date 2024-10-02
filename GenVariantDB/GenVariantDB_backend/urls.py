@@ -1,9 +1,9 @@
 from django.urls import path
-from .views import connect, writeManifest, getDocCount, get_var_stats
+from .views import connect, uploadReferencedDocs, delete_patient_and_records, get_all_patients_by_name
 
 urlpatterns = [
     path("connect/", connect, name="connect"),
-    path("writeManifest/", writeManifest, name="writeManifest"),
-    path("getDocCount/", getDocCount, name="getDocCount"),
-    path ("get_var_stats/", get_var_stats, name="get_var_stats")
+    path("uploadReferencedDocs/", uploadReferencedDocs, name="uploadReferencedDocs"),
+    path("delete_patient_and_records/", delete_patient_and_records, name = "delete_patient_and_records"),
+    path("get_all_patients_by_name/", get_all_patients_by_name, name="get_all_patients_by_name")
 ]
