@@ -1,11 +1,9 @@
-from multiprocessing import process
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse, JsonResponse
 from pymongo import InsertOne, UpdateOne
 from .utils import mongoConnect, read_vcf, extract_var_info, extract_format
 from bson import ObjectId
 import json
-from concurrent.futures import ThreadPoolExecutor
 
 @csrf_exempt
 def uploadReferencedDocs(request):
