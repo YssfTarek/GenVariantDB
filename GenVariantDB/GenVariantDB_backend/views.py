@@ -250,9 +250,12 @@ def get_all_patients_by_name(request):
         return HttpResponse("Invalid request method. Only GET is allowed.", status=405)
 
 def connect(request):
-    connection = mongoConnect()
-
     if request.method == "GET":
-        return HttpResponse("Successfully connected to Mongodb", status=200)
+        try:
+            connection = mongoConnect()
+            return HttpResponse("Successfully connected to MongoDB through Django backend, through Gateway!", status=200)
+        
+        except Exception as e:
+            return HttpResponse({f"Could not connect to MongoDB: {str(e)}"}, status=500)
     else:
-        return HttpResponse("Invalid Request", status=400)
+        return HttpResponse("Invalid Request Method", status=400)

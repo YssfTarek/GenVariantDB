@@ -1,0 +1,39 @@
+{
+    "apps": [
+      {
+        "name": "GenVarDB_Jango_Backend",
+        "script": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/gunicorn",
+        "args": "GenVariantDB.wsgi:application --bind 127.0.0.1:8000 --workers 4 --threads 2",
+        "cwd": "./GenVariantDB",
+        "exec_mode": "fork",
+        "instances": "1",
+        "watch": true,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": "10",
+        "interpreter": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/python3"
+      },
+      {
+        "name": "GenVarDB_Node_Backend",
+        "script": "server.mjs",
+        "cwd": "./GenVariantDB_Node",
+        "exec_mode": "cluster",
+        "instances": "max",
+        "watch": true,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": "10"
+      },
+      {
+        "name": "GenVarDB_Gateway",
+        "script": "gateway.mjs",
+        "cwd": "./Gateway",
+        "exec_mode": "cluster",
+        "instances": "max",
+        "watch": true,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": "10"
+      }
+    ]
+  }
