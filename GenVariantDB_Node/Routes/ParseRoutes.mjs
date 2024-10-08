@@ -1,8 +1,9 @@
 import express from 'express';
-import connect from '../Controllers/ParseControllers.mjs'
+import { connect, addPatient } from '../Controllers/ParseControllers.mjs'
 
 const router = express.Router();
 
-router.get("/connect", connect)
+router.get("/connect", connect);
+router.post("/addPatient", addPatient);
 
-export default router
+export default router;

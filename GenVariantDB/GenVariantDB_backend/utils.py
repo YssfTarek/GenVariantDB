@@ -1,32 +1,5 @@
-from pymongo import MongoClient
 from io import StringIO
 import pandas as pd
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-
-def mongoConnect():
-
-    db_url = os.getenv("DB_URL")
-    db_name = os.getenv("DB")
-
-    if not db_url or not db_name:
-        raise ValueError("DB_URL or DB_NAME environment variable not set")
-
-    try:
-        client = MongoClient(db_url)
-        db = client[db_name]
-        patient_collection = db['patients']
-        variant_collection = db['variants']
-        quality_collection = db['qualities']
-        info_collection = db['infos']
-        format_collection = db['formats']
-        print("Successfully connected to MongoDB")
-        return patient_collection, variant_collection, quality_collection, info_collection, format_collection
-    except Exception as e:
-        print("An error has occured while attempting to connect to Mongodb: ", e)
 
 def read_vcf(vcf_file):
     header_line = None
