@@ -22,7 +22,8 @@
         "watch": true,
         "wait_ready": true,
         "autorestart": true,
-        "max_restarts": "10"
+        "max_restarts": "10",
+        "max_memory_restart": "2G"
       },
       {
         "name": "GenVarDB_Gateway",
