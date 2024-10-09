@@ -10,7 +10,7 @@ const connect = async (req, res) => {
 const addPatient = async (req, res) => {
     const { patient, variants, qual, info, format } = req.body;
     const { patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection } = getCollections();
-    
+
     try {
         let existingPatient = await patientCollection.findOne({
             patient_name: patient.patient_name,
@@ -30,6 +30,8 @@ const addPatient = async (req, res) => {
         const bulkOpsVariants = [];
         const batchSize = Number(process.env.BATCH_SIZE) || 500;
 
+        console.log(`Total variants to process: ${variants.length}`);
+        
         for (let i = 0; i < variants.length; i++) {
             const variantData = variants[i];
             const variantKey = {
@@ -50,24 +52,26 @@ const addPatient = async (req, res) => {
                 }
             });
 
+            // Log each time we reach a batch size or end of variants
             if (bulkOpsVariants.length === batchSize || i === variants.length - 1) {
+                console.log(`Processing batch with ${bulkOpsVariants.length} variants...`);
+
                 // Perform bulk write for variants
                 const variantWriteResult = await variantCollection.bulkWrite(bulkOpsVariants);
+                console.log(`Processed ${variantWriteResult.matchedCount} variants. Upserted IDs: ${JSON.stringify(variantWriteResult.upsertedIds)}`);
 
-                // Collect variant IDs from the upserted results
-                const variantIds = variantWriteResult.upsertedIds.map((id, index) => {
-                    return { variantKey: bulkOpsVariants[index].updateOne.filter, variantId: id };
-                });
+                const variantIds = variantWriteResult.upsertedIds
+                    ? Object.entries(variantWriteResult.upsertedIds).map(([_, id]) => id)
+                    : [];  // Default to an empty array if undefined
 
                 // Prepare bulk operations for quality, info, and format collections
                 const bulkOpsQuality = [];
                 const bulkOpsInfo = [];
                 const bulkOpsFormat = [];
 
-                variantIds.forEach((variantData, index) => {
-                    const variantId = variantData.variantId;
+                variantIds.forEach((variantId, index) => {
+                    console.log(`Processing variantId: ${variantId}, index: ${index}`);
 
-                    // Push quality document if present
                     if (qual[index]) {
                         bulkOpsQuality.push({
                             insertOne: {
@@ -81,7 +85,6 @@ const addPatient = async (req, res) => {
                         });
                     }
 
-                    // Push info document if present
                     if (info[index]) {
                         bulkOpsInfo.push({
                             insertOne: {
@@ -94,7 +97,6 @@ const addPatient = async (req, res) => {
                         });
                     }
 
-                    // Push format document if present
                     if (format[index]) {
                         bulkOpsFormat.push({
                             insertOne: {
@@ -108,17 +110,33 @@ const addPatient = async (req, res) => {
                     }
                 });
 
-                // Perform bulk writes concurrently
-                await Promise.all([
-                    qualityCollection.bulkWrite(bulkOpsQuality),
-                    infoCollection.bulkWrite(bulkOpsInfo),
-                    formatCollection.bulkWrite(bulkOpsFormat)
-                ]);
+                // Perform bulk writes only if there are operations to execute
+                const bulkWritePromises = [];
+
+                if (bulkOpsQuality.length > 0) {
+                    bulkWritePromises.push(qualityCollection.bulkWrite(bulkOpsQuality));
+                }
+
+                if (bulkOpsInfo.length > 0) {
+                    bulkWritePromises.push(infoCollection.bulkWrite(bulkOpsInfo));
+                }
+
+                if (bulkOpsFormat.length > 0) {
+                    bulkWritePromises.push(formatCollection.bulkWrite(bulkOpsFormat));
+                }
+
+                // Execute bulk writes concurrently
+                try {
+                    await Promise.all(bulkWritePromises);
+                } catch (bulkWriteError) {
+                    console.error('Bulk Write Error:', bulkWriteError);
+                    return res.status(500).json({ error: "Failed to write quality, info, or format data." });
+                }
 
                 // Clear the bulk operations for the next batch
                 bulkOpsVariants.length = 0;
 
-                console.log(`Processed ${variantWriteResult.matchedCount} variants.`);
+                console.log(`Finished processing batch of variants. Total processed so far: ${i + 1}`);
             }
         }
 
