@@ -5,7 +5,7 @@ dotenv.config();
 
 const mongoURL = process.env.DB_URL;
 const dbName = process.env.DB;
-const pool = process.env.POOL_SIZE;
+const pool = process.env.POOL_SIZE || 1
 
 let db, patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection;
 
@@ -18,6 +18,9 @@ const connectToMongoDB = async () => {
         if (!client) {
             client = new MongoClient(mongoURL, {
                 maxPoolSize:pool,
+                connectTimeoutMS: 20000, // 20 seconds
+                socketTimeoutMS: 60000, // 60 seconds
+                serverSelectionTimeoutMS: 10000 // 10 seconds
             });
             await client.connect();
             db = client.db(dbName);

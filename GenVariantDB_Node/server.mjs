@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import parseRoutes from './Routes/ParseRoutes.mjs';
-import { connectToMongoDB } from './config/config.mjs';
+import { connectToMongoDB } from './Config/config.mjs';
 
 dotenv.config();
 

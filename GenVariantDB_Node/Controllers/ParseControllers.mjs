@@ -1,4 +1,4 @@
-import { getCollections } from '../config/config.mjs';
+import { getCollections } from '../Config/config.mjs';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -45,8 +45,7 @@ const addPatient = async (req, res) => {
                 updateOne: {
                     filter: variantKey,
                     update: {
-                        $addToSet: { patients: patientId },
-                        $setOnInsert: { variantData }
+                        $addToSet: { patients: patientId }
                     },
                     upsert: true
                 }
