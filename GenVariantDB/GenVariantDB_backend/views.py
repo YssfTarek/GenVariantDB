@@ -1,6 +1,6 @@
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse, JsonResponse
-from .utils import read_vcf, extract_var_info, extract_format
+from .utils import chunk_data, prepare_variant_data
 import requests
 
 def connect(request):
@@ -14,38 +14,51 @@ def uploadReferencedDocs(request):
         vcf_file = request.FILES.get('vcf_file')
         
         if not vcf_file:
-            return HttpResponse("Missing 'vcf_file' or 'patient_name'", status=400)
-        
-        # Parse the VCF file
-        trimmed_vcf = read_vcf(vcf_file)
-        variants_data = trimmed_vcf.loc[:, :"ALT"].to_dict(orient="records")
-        qual_data = trimmed_vcf[['QUAL', 'FILTER']].to_dict(orient="records")
-        info_data = extract_var_info(trimmed_vcf)
-        format_data = extract_format(trimmed_vcf)
+            return HttpResponse("Missing 'vcf_file'", status=400)
 
-        node_url = "http://localhost:3000/api/addPatient"
-
+        # Get patient data from the request
         patient_data = {
             "patient_name": request.POST.get('patient_name'),
             "accession_number": request.POST.get('accession_number'),
             "hpo_terms": request.POST.get('hpo_terms')
         }
 
-        data_payload = {
-            "patient" : patient_data,
-            "variants": variants_data,
-            "qual": qual_data,
-            "info": info_data,
-            "format": format_data
-        }
-        
+        # First send the patient data and get the patient ID from the Node.js backend
+        node_url_patient = "http://localhost:3000/api/addPatient"
         try:
-            response =  requests.post(node_url, json=data_payload)
-            if response.status_code == 201:
-                return JsonResponse({"message": "Data successfully uploadeded"}, status=201)
-            else:
-                return JsonResponse({"error": response.json()}, status = response.status_code)
+            patient_response = requests.post(node_url_patient, json={"patient": patient_data})
+            if patient_response.status_code != 201:
+                return JsonResponse({"error": patient_response.json()}, status=patient_response.status_code)
+
+            # Extract patient ID from the response
+            patient_id = patient_response.json().get('patient_id')
         except requests.exceptions.RequestException as e:
-            return JsonResponse({"error": f"Node.js service error: {str(e)}"}, status=500)
-        
+            return JsonResponse({"error": f"Node.js service error when adding patient: {str(e)}"}, status=500)
+
+        # Prepare variant data and send in chunks
+        combined_data = prepare_variant_data(vcf_file)
+        chunk_size = 50
+        node_url_variant = "http://localhost:3000/api/addVariants"
+        errors = []
+
+        for chunk in chunk_data(combined_data, chunk_size):
+            data_payload = {
+                "patient_id": patient_id,
+                "data": chunk
+            }
+            try:
+                response = requests.post(node_url_variant, json=data_payload)
+                if response.status_code != 201:
+                    errors.append({
+                        "status": response.status_code,
+                        "message": response.json()
+                    })
+            except requests.exceptions.RequestException as e:
+                errors.append({"error": f"Node.js service error when adding variants: {str(e)}"})
+
+        if errors:
+            return JsonResponse({"errors": errors}, status=500)
+
+        return JsonResponse({"message": "Data successfully uploaded"}, status=201)
+    
     return HttpResponse("Invalid request method", status=400)

@@ -18,26 +18,29 @@ const connectToMongoDB = async () => {
         if (!client) {
             client = new MongoClient(mongoURL, {
                 maxPoolSize:pool,
-                connectTimeoutMS: 20000, // 20 seconds
-                socketTimeoutMS: 60000, // 60 seconds
-                serverSelectionTimeoutMS: 10000 // 10 seconds
+                serverSelectionTimeoutMS: 5000
             });
-            await client.connect();
+            await client.connect()
+            console.log(`Connected to MongoDB with ${pool} connections`);
             db = client.db(dbName);
             patientCollection = db.collection('patients');
             variantCollection = db.collection('variants');
             qualityCollection = db.collection('qualities');
             infoCollection = db.collection('infos');
             formatCollection = db.collection('formats');
-            console.log(`Connected to MongoDB with ${pool} connections`);
         }
     } catch (err) {
-        console.log('Failed to connect to MongoDB:', err);
+        console.error('Failed to connect to MongoDB:', err.message);
+        if (retries > 0) {
+            setTimeout(() => connectToMongoDB(retries - 1), 5000);
+        }
     }
+
+    return db
 };
 
 const getCollections = () => {
-    if (!db){
+    if (!client || !db){
         throw new Error ('Database not connected. Call connectToMongoDB() first!');
     }
     
@@ -46,8 +49,21 @@ const getCollections = () => {
         variantCollection,
         qualityCollection,
         infoCollection,
-        formatCollection
+        formatCollection,
+        client
     };
 };
 
-export { connectToMongoDB, getCollections };
+const gracefulShutdown = async () => {
+    try {
+        console.log('Closing MongoDB connection...');
+        await client.close();
+        console.log('MongoDB connection closed.');
+    } catch (error) {
+        console.error('Error closing MongoDB connection:', err.message);
+    } finally {
+        process.exit(0); // Exit the process
+    }
+};
+
+export { connectToMongoDB, getCollections, gracefulShutdown };

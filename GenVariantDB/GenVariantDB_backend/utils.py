@@ -72,3 +72,27 @@ def extract_format(vcf):
 
 
     return format_dict_list
+
+def chunk_data(data, chunk_size):
+    for i in range(0, len(data), chunk_size):
+        yield data[i:i + chunk_size]
+
+def prepare_variant_data(vcf_file):
+    vcf = read_vcf(vcf_file)
+
+    variants = vcf.loc[:, :"ALT"].to_dict(orient="records")
+    qual = vcf[['QUAL', 'FILTER']].to_dict(orient="records")
+    info = extract_var_info(vcf)
+    format_data = extract_format(vcf)
+
+    combined_data = []
+
+    for i in range(len(variants)):
+        combined_data.append({
+            "variant": variants[i],
+            "qual": qual[i],
+            "info": info[i],
+            "format": format_data[i]
+        })
+
+    return combined_data
