@@ -57,15 +57,13 @@ const addVariants = async (req, res) => {
         return res.status(400).json({ error: 'Missing patient ID or variant data.' });
     }
 
-    // Validate incoming variant data structure
     if (!data.every(isValidVariant)) {
         return res.status(400).json({ error: 'Invalid variant data structure.' });
     }
 
     const patientId = new ObjectId(patient_id);
     const { variantCollection, qualityCollection, infoCollection, formatCollection } = getCollections();
-    
-    const session = req.session; // Start a session for transactions
+    const session = req.session;
 
     try {
         await session.withTransaction(async () => {
@@ -74,7 +72,6 @@ const addVariants = async (req, res) => {
             const bulkOpsInfo = [];
             const bulkOpsFormat = [];
 
-            // Prepare to find existing variants
             const variantKeys = data.map(entry => ({
                 '#CHROM': entry.variant['#CHROM'],
                 'POS': entry.variant['POS'],
@@ -83,11 +80,9 @@ const addVariants = async (req, res) => {
             }));
 
             console.log('Finding existing variants...');
-            const findStartTime = Date.now(); // Start timing the find operation
             const existingVariants = await variantCollection.find({
-                $and: variantKeys
+                $or: variantKeys
             }).toArray();
-            console.log(`Found existing variants in ${Date.now() - findStartTime} ms.`);
 
             const existingVariantMap = {};
             existingVariants.forEach(variant => {
@@ -95,7 +90,6 @@ const addVariants = async (req, res) => {
                 existingVariantMap[key] = variant;
             });
 
-            // Iterate through data and handle both new and existing variants
             for (const entry of data) {
                 const { variant, qual, info, format } = entry;
                 const variantKey = `${variant['#CHROM']}_${variant['POS']}_${variant['REF']}_${variant['ALT']}`;
@@ -103,8 +97,6 @@ const addVariants = async (req, res) => {
 
                 if (existingVariantMap[variantKey]) {
                     variantId = existingVariantMap[variantKey]._id;
-
-                    // Update the variant to add the patient ID if it doesn't already exist
                     bulkOpsVariants.push({
                         updateOne: {
                             filter: { _id: variantId },
@@ -113,22 +105,20 @@ const addVariants = async (req, res) => {
                         }
                     });
                 } else {
-                    // Insert new variant and capture its ID
                     bulkOpsVariants.push({
                         insertOne: {
                             document: {
                                 ...variant,
-                                patients: [patientId] // Include the patient ID in the new variant
+                                patients: [patientId]
                             }
                         }
                     });
                 }
 
-                // Always insert quality, info, and format entries
                 bulkOpsQuality.push({
                     insertOne: {
                         document: {
-                            variant_id: variantId || null,  // Will be filled after variant insertion
+                            variant_id: variantId || null,  // To be updated later for new variants
                             patient_id: patientId,
                             ...qual
                         }
@@ -138,7 +128,7 @@ const addVariants = async (req, res) => {
                 bulkOpsInfo.push({
                     insertOne: {
                         document: {
-                            variant_id: variantId || null,  // Will be filled after variant insertion
+                            variant_id: variantId || null,  // To be updated later for new variants
                             patient_id: patientId,
                             ...info
                         }
@@ -148,7 +138,7 @@ const addVariants = async (req, res) => {
                 bulkOpsFormat.push({
                     insertOne: {
                         document: {
-                            variant_id: variantId || null,  // Will be filled after variant insertion
+                            variant_id: variantId || null,  // To be updated later for new variants
                             patient_id: patientId,
                             ...format
                         }
@@ -156,64 +146,37 @@ const addVariants = async (req, res) => {
                 });
             }
 
-            // Execute bulk operations within the transaction
-            if (bulkOpsVariants.length > 0) {
-                console.log('Executing bulk write for variants...');
-                const variantWriteStartTime = Date.now();
-                const variantWriteResult = await variantCollection.bulkWrite(bulkOpsVariants, { session });
-                console.log(`Bulk write for variants completed in ${Date.now() - variantWriteStartTime} ms.`);
+            const variantWriteResult = await variantCollection.bulkWrite(bulkOpsVariants, { session });
+            const insertedVariantIds = variantWriteResult.insertedIds;
 
-                // Map variant IDs for newly inserted variants
-                const insertedVariantIds = variantWriteResult.insertedIds;
+            bulkOpsQuality.forEach((op, idx) => {
+                if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
+                    op.insertOne.document.variant_id = insertedVariantIds[idx];
+                }
+            });
+            bulkOpsInfo.forEach((op, idx) => {
+                if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
+                    op.insertOne.document.variant_id = insertedVariantIds[idx];
+                }
+            });
+            bulkOpsFormat.forEach((op, idx) => {
+                if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
+                    op.insertOne.document.variant_id = insertedVariantIds[idx];
+                }
+            });
 
-                bulkOpsQuality.forEach((op, idx) => {
-                    if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
-                        op.insertOne.document.variant_id = insertedVariantIds[idx];
-                    }
-                });
-                bulkOpsInfo.forEach((op, idx) => {
-                    if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
-                        op.insertOne.document.variant_id = insertedVariantIds[idx];
-                    }
-                });
-                bulkOpsFormat.forEach((op, idx) => {
-                    if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
-                        op.insertOne.document.variant_id = insertedVariantIds[idx];
-                    }
-                });
-            }
+            await qualityCollection.bulkWrite(bulkOpsQuality, { session });
+            await infoCollection.bulkWrite(bulkOpsInfo, { session });
+            await formatCollection.bulkWrite(bulkOpsFormat, { session });
 
-            if (bulkOpsQuality.length > 0) {
-                console.log('Executing bulk write for quality...');
-                const qualityWriteStartTime = Date.now();
-                await qualityCollection.bulkWrite(bulkOpsQuality, { session });
-                console.log(`Bulk write for quality completed in ${Date.now() - qualityWriteStartTime} ms.`);
-            }
-
-            if (bulkOpsInfo.length > 0) {
-                console.log('Executing bulk write for info...');
-                const infoWriteStartTime = Date.now();
-                await infoCollection.bulkWrite(bulkOpsInfo, { session });
-                console.log(`Bulk write for info completed in ${Date.now() - infoWriteStartTime} ms.`);
-            }
-
-            if (bulkOpsFormat.length > 0) {
-                console.log('Executing bulk write for format...');
-                const formatWriteStartTime = Date.now();
-                await formatCollection.bulkWrite(bulkOpsFormat, { session });
-                console.log(`Bulk write for format completed in ${Date.now() - formatWriteStartTime} ms.`);
-            }
-
-            console.log('Batch of data successfully uploaded.');
             res.status(201).json({ message: 'Batch of data successfully uploaded.' });
-
-        }); // End of transaction
+        });
 
     } catch (error) {
         console.error('Error during insertion:', error);
         res.status(500).json({ error: 'Error inserting data into MongoDB.' });
     } finally {
-        session.endSession(); // End the session
+        session.endSession();
     }
 };
 
