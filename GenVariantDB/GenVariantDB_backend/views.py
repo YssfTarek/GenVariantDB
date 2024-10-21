@@ -24,12 +24,15 @@ async def async_send_chunk(chunk, patient_id, semaphore):
     }
 
     async with semaphore:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             logger.debug(f"Sending chunk to Node.js: {data_payload}")
             try:
                 response = await client.post(node_url_variant, json=data_payload)
                 logger.debug(f"Response from Node.js for patient {patient_id}: {response.status_code}, {response.json()}")
                 return response
+            except httpx.RequestError as e:
+                logger.error(f"Request error sending chunk to Node.js for patient {patient_id}: {str(e)}")
+                return None  # Return None to indicate failure
             except Exception as e:
                 logger.error(f"Error sending chunk to Node.js for patient {patient_id}: {str(e)}")
                 return None
@@ -44,8 +47,23 @@ async def upload_variants_concurrently(combined_data, patient_id, max_concurrent
         tasks.append(async_send_chunk(chunk, patient_id, semaphore))
 
     responses = await asyncio.gather(*tasks)
-    return responses
 
+    # Collect errors where the response is None or status_code is not 201
+    errors = []
+    for response in responses:
+        if response is None:
+            errors.append({
+                "status": "Request failed",
+                "message": "No response from the server"
+            })
+        elif response.status_code != 201:
+            errors.append({
+                "status": response.status_code,
+                "message": response.json()  # Ensure to handle this in case of malformed JSON
+            })
+            logger.error(f"Error uploading variant: {response.status_code}, {response.json()}")
+
+    return errors  # Return the list of errors to be handled later
 
 @csrf_exempt
 def uploadReferencedDocs(request):
