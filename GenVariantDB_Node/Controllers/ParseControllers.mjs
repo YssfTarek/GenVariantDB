@@ -72,23 +72,29 @@ const addVariants = async (req, res) => {
             const bulkOpsInfo = [];
             const bulkOpsFormat = [];
 
-            const variantKeys = data.map(entry => ({
-                '#CHROM': entry.variant['#CHROM'],
-                'POS': entry.variant['POS'],
-                'REF': entry.variant['REF'],
-                'ALT': entry.variant['ALT']
-            }));
+            // Build an array of variant keys
+            const variantKeys = data.map(entry => [
+                entry.variant['#CHROM'],
+                entry.variant['POS'],
+                entry.variant['REF'],
+                entry.variant['ALT']
+            ]);
 
+            // Find existing variants in one go
             console.log('Finding existing variants...');
             const existingVariants = await variantCollection.find({
-                $or: variantKeys
+                '$or': variantKeys.map(key => ({
+                    '#CHROM': key[0],
+                    'POS': key[1],
+                    'REF': key[2],
+                    'ALT': key[3]
+                }))
             }).toArray();
 
-            const existingVariantMap = {};
-            existingVariants.forEach(variant => {
-                const key = `${variant['#CHROM']}_${variant['POS']}_${variant['REF']}_${variant['ALT']}`;
-                existingVariantMap[key] = variant;
-            });
+            const existingVariantMap = Object.fromEntries(existingVariants.map(variant => [
+                `${variant['#CHROM']}_${variant['POS']}_${variant['REF']}_${variant['ALT']}`,
+                variant
+            ]));
 
             for (const entry of data) {
                 const { variant, qual, info, format } = entry;
@@ -115,11 +121,16 @@ const addVariants = async (req, res) => {
                     });
                 }
 
+                // Prepare bulk operations for quality, info, and format
+                const sharedDocument = {
+                    variant_id: variantId || null,
+                    patient_id: patientId,
+                };
+
                 bulkOpsQuality.push({
                     insertOne: {
                         document: {
-                            variant_id: variantId || null,  // To be updated later for new variants
-                            patient_id: patientId,
+                            ...sharedDocument,
                             ...qual
                         }
                     }
@@ -128,8 +139,7 @@ const addVariants = async (req, res) => {
                 bulkOpsInfo.push({
                     insertOne: {
                         document: {
-                            variant_id: variantId || null,  // To be updated later for new variants
-                            patient_id: patientId,
+                            ...sharedDocument,
                             ...info
                         }
                     }
@@ -138,40 +148,39 @@ const addVariants = async (req, res) => {
                 bulkOpsFormat.push({
                     insertOne: {
                         document: {
-                            variant_id: variantId || null,  // To be updated later for new variants
-                            patient_id: patientId,
+                            ...sharedDocument,
                             ...format
                         }
                     }
                 });
             }
 
+            // Execute the bulk operations for variants
             const variantWriteResult = await variantCollection.bulkWrite(bulkOpsVariants, { session });
             const insertedVariantIds = variantWriteResult.insertedIds;
 
-            bulkOpsQuality.forEach((op, idx) => {
-                if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
-                    op.insertOne.document.variant_id = insertedVariantIds[idx];
-                }
-            });
-            bulkOpsInfo.forEach((op, idx) => {
-                if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
-                    op.insertOne.document.variant_id = insertedVariantIds[idx];
-                }
-            });
-            bulkOpsFormat.forEach((op, idx) => {
-                if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
-                    op.insertOne.document.variant_id = insertedVariantIds[idx];
-                }
-            });
+            // Update variant_id for new variants
+            const updateOps = (ops, ids) => {
+                ops.forEach((op, idx) => {
+                    if (!op.insertOne.document.variant_id && ids[idx]) {
+                        op.insertOne.document.variant_id = ids[idx];
+                    }
+                });
+            };
 
-            await qualityCollection.bulkWrite(bulkOpsQuality, { session });
-            await infoCollection.bulkWrite(bulkOpsInfo, { session });
-            await formatCollection.bulkWrite(bulkOpsFormat, { session });
+            updateOps(bulkOpsQuality, insertedVariantIds);
+            updateOps(bulkOpsInfo, insertedVariantIds);
+            updateOps(bulkOpsFormat, insertedVariantIds);
+
+            // Perform concurrent writes to collections
+            await Promise.all([
+                qualityCollection.bulkWrite(bulkOpsQuality, { session }),
+                infoCollection.bulkWrite(bulkOpsInfo, { session }),
+                formatCollection.bulkWrite(bulkOpsFormat, { session }),
+            ]);
 
             res.status(201).json({ message: 'Batch of data successfully uploaded.' });
         });
-
     } catch (error) {
         console.error('Error during insertion:', error);
         res.status(500).json({ error: 'Error inserting data into MongoDB.' });
