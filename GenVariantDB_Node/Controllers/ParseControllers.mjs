@@ -5,13 +5,17 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const connect = async (req, res) => {
-    
     const { patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection, client } = getCollections();
-    if (patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection, client){
-        res.status(200).send('You are connected to MongoDB through your Nodejs backend!');
+    if (patientCollection && variantCollection && qualityCollection && infoCollection && formatCollection && client) {
+        res.status(200).send('You are connected to MongoDB through your Node.js backend!');
     } else {
-        res.status(500).send('No connections were made to Mongodb')
+        res.status(500).send('No connections were made to MongoDB');
     }
+};
+
+const isValidVariant = (entry) => {
+    // Implement validation logic for each variant entry
+    return entry.variant && entry.qual && entry.info && entry.format;
 };
 
 const addPatient = async (req, res) => {
@@ -46,7 +50,6 @@ const addPatient = async (req, res) => {
     }
 };
 
-
 const addVariants = async (req, res) => {
     const { patient_id, data } = req.body;
 
@@ -54,11 +57,15 @@ const addVariants = async (req, res) => {
         return res.status(400).json({ error: 'Missing patient ID or variant data.' });
     }
 
-    const patientId = new ObjectId(patient_id)
+    // Validate incoming variant data structure
+    if (!data.every(isValidVariant)) {
+        return res.status(400).json({ error: 'Invalid variant data structure.' });
+    }
 
-    const { variantCollection, qualityCollection, infoCollection, formatCollection, client } = getCollections();
+    const patientId = new ObjectId(patient_id);
+    const { variantCollection, qualityCollection, infoCollection, formatCollection } = getCollections();
     
-    const session = client.startSession(); // Start a session for transactions
+    const session = req.session; // Start a session for transactions
 
     try {
         await session.withTransaction(async () => {
@@ -75,10 +82,12 @@ const addVariants = async (req, res) => {
                 'ALT': entry.variant['ALT']
             }));
 
-            // Check for existing variants
+            console.log('Finding existing variants...');
+            const findStartTime = Date.now(); // Start timing the find operation
             const existingVariants = await variantCollection.find({
-                $or: variantKeys
+                $and: variantKeys
             }).toArray();
+            console.log(`Found existing variants in ${Date.now() - findStartTime} ms.`);
 
             const existingVariantMap = {};
             existingVariants.forEach(variant => {
@@ -149,38 +158,50 @@ const addVariants = async (req, res) => {
 
             // Execute bulk operations within the transaction
             if (bulkOpsVariants.length > 0) {
+                console.log('Executing bulk write for variants...');
+                const variantWriteStartTime = Date.now();
                 const variantWriteResult = await variantCollection.bulkWrite(bulkOpsVariants, { session });
+                console.log(`Bulk write for variants completed in ${Date.now() - variantWriteStartTime} ms.`);
+
                 // Map variant IDs for newly inserted variants
                 const insertedVariantIds = variantWriteResult.insertedIds;
-                
-                // Assign variant IDs to quality, info, format if variant was newly inserted
+
                 bulkOpsQuality.forEach((op, idx) => {
-                    if (!op.insertOne.document.variant_id) {
+                    if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
                         op.insertOne.document.variant_id = insertedVariantIds[idx];
                     }
                 });
                 bulkOpsInfo.forEach((op, idx) => {
-                    if (!op.insertOne.document.variant_id) {
+                    if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
                         op.insertOne.document.variant_id = insertedVariantIds[idx];
                     }
                 });
                 bulkOpsFormat.forEach((op, idx) => {
-                    if (!op.insertOne.document.variant_id) {
+                    if (!op.insertOne.document.variant_id && insertedVariantIds[idx]) {
                         op.insertOne.document.variant_id = insertedVariantIds[idx];
                     }
                 });
             }
 
             if (bulkOpsQuality.length > 0) {
+                console.log('Executing bulk write for quality...');
+                const qualityWriteStartTime = Date.now();
                 await qualityCollection.bulkWrite(bulkOpsQuality, { session });
+                console.log(`Bulk write for quality completed in ${Date.now() - qualityWriteStartTime} ms.`);
             }
 
             if (bulkOpsInfo.length > 0) {
+                console.log('Executing bulk write for info...');
+                const infoWriteStartTime = Date.now();
                 await infoCollection.bulkWrite(bulkOpsInfo, { session });
+                console.log(`Bulk write for info completed in ${Date.now() - infoWriteStartTime} ms.`);
             }
 
             if (bulkOpsFormat.length > 0) {
+                console.log('Executing bulk write for format...');
+                const formatWriteStartTime = Date.now();
                 await formatCollection.bulkWrite(bulkOpsFormat, { session });
+                console.log(`Bulk write for format completed in ${Date.now() - formatWriteStartTime} ms.`);
             }
 
             console.log('Batch of data successfully uploaded.');

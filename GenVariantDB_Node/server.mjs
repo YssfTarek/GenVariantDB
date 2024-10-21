@@ -2,7 +2,8 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import parseRoutes from './Routes/ParseRoutes.mjs';
-import { connectToMongoDB, gracefulShutdown } from './Config/config.mjs';
+import { connectToMongoDB, gracefulShutdown, startSession, endSession } from './Config/config.mjs';
+import sessionMiddleware from './Middleware/SessionMiddleware.mjs'
 
 dotenv.config();
 
@@ -11,8 +12,9 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json({ limit: '1gb' }));
 app.use(express.urlencoded({ limit: '1gb', extended: true}));
-
 app.use(cors());
+
+app.use(sessionMiddleware)
 
 const startServer = async () => {
     await connectToMongoDB(); // Ensure the database connection is established

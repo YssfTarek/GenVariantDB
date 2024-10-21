@@ -5,30 +5,28 @@ dotenv.config();
 
 const mongoURL = process.env.DB_URL;
 const dbName = process.env.DB;
-const pool = process.env.POOL_SIZE || 1
+const pool = parseInt(process.env.POOL_SIZE) || 1
 
 let db, patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection;
-
 let client;
+let currentSession = null;
 
 const connectToMongoDB = async () => {
     if (client) return;
 
     try {
-        if (!client) {
-            client = new MongoClient(mongoURL, {
-                maxPoolSize:pool,
-                serverSelectionTimeoutMS: 5000
-            });
-            await client.connect()
-            console.log(`Connected to MongoDB with ${pool} connections`);
-            db = client.db(dbName);
-            patientCollection = db.collection('patients');
-            variantCollection = db.collection('variants');
-            qualityCollection = db.collection('qualities');
-            infoCollection = db.collection('infos');
-            formatCollection = db.collection('formats');
-        }
+        client = new MongoClient(mongoURL, {
+            maxPoolSize:pool,
+            serverSelectionTimeoutMS: 30000
+        });
+        await client.connect()
+        console.log(`Connected to MongoDB with ${pool} connections`);
+        db = client.db(dbName);
+        patientCollection = db.collection('patients');
+        variantCollection = db.collection('variants');
+        qualityCollection = db.collection('qualities');
+        infoCollection = db.collection('infos');
+        formatCollection = db.collection('formats');
     } catch (err) {
         console.error('Failed to connect to MongoDB:', err.message);
         if (retries > 0) {
@@ -54,6 +52,23 @@ const getCollections = () => {
     };
 };
 
+const startSession = async () => {
+    await connectToMongoDB();
+
+    if (!currentSession) {
+        currentSession = client.startSession
+    }
+
+    return currentSession
+};
+
+const endSession = async() => {
+    if (currentSession) {
+        await currentSession.endSession();
+        currentSession = null;
+    }
+};
+
 const gracefulShutdown = async () => {
     try {
         console.log('Closing MongoDB connection...');
@@ -66,4 +81,4 @@ const gracefulShutdown = async () => {
     }
 };
 
-export { connectToMongoDB, getCollections, gracefulShutdown };
+export { connectToMongoDB, getCollections, gracefulShutdown, startSession, endSession };
