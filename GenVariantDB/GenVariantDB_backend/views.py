@@ -41,7 +41,7 @@ async def async_send_chunk(chunk, patient_id, semaphore):
 @csrf_exempt
 async def upload_variants_concurrently(combined_data, patient_id, max_concurrent_requests):
     tasks = []
-    chunk_size = 500
+    chunk_size = 200
     semaphore = asyncio.Semaphore(max_concurrent_requests)
     for chunk in chunk_data(combined_data, chunk_size):
         tasks.append(async_send_chunk(chunk, patient_id, semaphore))

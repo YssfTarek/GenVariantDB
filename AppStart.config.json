@@ -18,7 +18,7 @@
         "script": "server.mjs",
         "cwd": "./GenVariantDB_Node",
         "exec_mode": "cluster",
-        "instances": "max",
+        "instances": "64",
         "watch": true,
         "wait_ready": true,
         "autorestart": true,

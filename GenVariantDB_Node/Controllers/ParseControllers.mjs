@@ -51,8 +51,10 @@ const addPatient = async (req, res) => {
 };
 
 const addVariants = async (req, res) => {
+    console.time('Total Process Time');
+    
     const { patient_id, data } = req.body;
-
+    
     if (!patient_id || !data) {
         return res.status(400).json({ error: 'Missing patient ID or variant data.' });
     }
@@ -67,6 +69,10 @@ const addVariants = async (req, res) => {
 
     try {
         await session.withTransaction(async () => {
+            console.time('Transaction Time');
+            
+            // Timing for bulk operations preparation
+            console.time('Preparing bulk operations');
             const bulkOpsVariants = [];
             const bulkOpsQuality = [];
             const bulkOpsInfo = [];
@@ -79,9 +85,10 @@ const addVariants = async (req, res) => {
                 entry.variant['REF'],
                 entry.variant['ALT']
             ]);
-
-            // Find existing variants in one go
-            console.log('Finding existing variants...');
+            console.timeEnd('Preparing bulk operations');
+            
+            // Timing for finding existing variants
+            console.time('Finding existing variants');
             const existingVariants = await variantCollection.find({
                 '$or': variantKeys.map(key => ({
                     '#CHROM': key[0],
@@ -90,12 +97,18 @@ const addVariants = async (req, res) => {
                     'ALT': key[3]
                 }))
             }).toArray();
+            console.timeEnd('Finding existing variants');
 
+            // Mapping existing variants
+            console.time('Mapping existing variants');
             const existingVariantMap = Object.fromEntries(existingVariants.map(variant => [
                 `${variant['#CHROM']}_${variant['POS']}_${variant['REF']}_${variant['ALT']}`,
                 variant
             ]));
+            console.timeEnd('Mapping existing variants');
 
+            // Prepare bulk operations
+            console.time('Preparing bulk operations for each entry');
             for (const entry of data) {
                 const { variant, qual, info, format } = entry;
                 const variantKey = `${variant['#CHROM']}_${variant['POS']}_${variant['REF']}_${variant['ALT']}`;
@@ -154,12 +167,17 @@ const addVariants = async (req, res) => {
                     }
                 });
             }
+            console.timeEnd('Preparing bulk operations for each entry');
 
-            // Execute the bulk operations for variants
+            // Execute bulk operations
+            console.time('Bulk write for variants');
             const variantWriteResult = await variantCollection.bulkWrite(bulkOpsVariants, { session });
+            console.timeEnd('Bulk write for variants');
+
             const insertedVariantIds = variantWriteResult.insertedIds;
 
             // Update variant_id for new variants
+            console.time('Updating variant IDs for quality, info, format');
             const updateOps = (ops, ids) => {
                 ops.forEach((op, idx) => {
                     if (!op.insertOne.document.variant_id && ids[idx]) {
@@ -171,14 +189,18 @@ const addVariants = async (req, res) => {
             updateOps(bulkOpsQuality, insertedVariantIds);
             updateOps(bulkOpsInfo, insertedVariantIds);
             updateOps(bulkOpsFormat, insertedVariantIds);
+            console.timeEnd('Updating variant IDs for quality, info, format');
 
             // Perform concurrent writes to collections
+            console.time('Bulk write for quality, info, format');
             await Promise.all([
                 qualityCollection.bulkWrite(bulkOpsQuality, { session }),
                 infoCollection.bulkWrite(bulkOpsInfo, { session }),
                 formatCollection.bulkWrite(bulkOpsFormat, { session }),
             ]);
+            console.timeEnd('Bulk write for quality, info, format');
 
+            console.timeEnd('Transaction Time');
             res.status(201).json({ message: 'Batch of data successfully uploaded.' });
         });
     } catch (error) {
@@ -186,6 +208,7 @@ const addVariants = async (req, res) => {
         res.status(500).json({ error: 'Error inserting data into MongoDB.' });
     } finally {
         session.endSession();
+        console.timeEnd('Total Process Time');
     }
 };
 
