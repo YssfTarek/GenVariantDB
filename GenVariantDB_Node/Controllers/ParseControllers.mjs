@@ -188,11 +188,14 @@ const addVariants = async (req, res) => {
             updateOps(bulkOpsFormat, insertedVariantIds);
 
             // Perform concurrent writes to collections with unordered bulk writes
-            await Promise.all([
-                qualityCollection.bulkWrite(bulkOpsQuality, { ordered: false, session }),
-                infoCollection.bulkWrite(bulkOpsInfo, { ordered: false, session }),
-                formatCollection.bulkWrite(bulkOpsFormat, { ordered: false, session }),
-            ]);
+            const qualityWriteResult = await qualityCollection.bulkWrite(bulkOpsQuality, { ordered: false, session });
+            const infoWriteResult = await infoCollection.bulkWrite(bulkOpsInfo, { ordered: false, session });
+            const formatWriteResult = await formatCollection.bulkWrite(bulkOpsFormat, { ordered: false, session });
+
+            // Check for errors in the write results
+            if (qualityWriteResult.hasWriteErrors() || infoWriteResult.hasWriteErrors() || formatWriteResult.hasWriteErrors()) {
+                throw new Error('One or more writes failed. Rolling back the transaction.');
+            }
 
             const endUpdateTime = Date.now();
             console.log(`Updated variant_id and executed concurrent writes in ${(endUpdateTime - startUpdateTime) / 1000} seconds.`);
@@ -201,10 +204,106 @@ const addVariants = async (req, res) => {
         });
     } catch (error) {
         console.error('Error during insertion:', error);
-        res.status(500).json({ error: 'Error inserting data into MongoDB.' });
+        res.status(500).json({ error: 'Error inserting data into MongoDB. Transaction rolled back.' });
     } finally {
         session.endSession();
     }
 };
 
-export { connect, addPatient, addVariants };
+const deletePatient = async(req, res) => {
+    
+    const { patient_id } = req.params;
+
+    if (!patient_id) {
+        return res.status(400).json({ error: 'Missing patient ID.' });
+    }
+
+    const patientId = new ObjectId(patient_id);
+
+    const { patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection } = getCollections();
+    const session = req.session;
+
+
+    try {
+        await session.withTransaction(async() => {
+
+            console.log("Deleting related records...");
+            const startDeleteTime = Date.now();
+
+            const bulkOpsQuality = [
+                {
+                    deleteMany: {
+                        filter: {patient_id: patientId}
+                    }
+                }
+            ];
+            const bulkOpsInfo = [
+                {
+                    deleteMany: {
+                        filter: {patient_id: patientId}
+                    }
+                }
+            ];
+            const bulkOpsFormat = [
+                {
+                    deleteMany: {
+                        filter: {patient_id: patientId}
+                    }
+                }
+            ];
+
+            await Promise.all([
+                qualityCollection.bulkWrite(bulkOpsQuality, { session, ordered: false }),
+                infoCollection.bulkWrite(bulkOpsInfo, { session, ordered: false }),
+                formatCollection.bulkWrite(bulkOpsFormat, { session, ordered: false }),
+            ]);
+
+            const variants = await variantCollection.find({ patients: patientId }).toArray();
+            const bulkOpsVariants = [];
+
+            for (const variant of variants) {
+                if (variant.patients.length === 1) {
+                    // If the variant only belongs to this patient, delete it
+                    bulkOpsVariants.push({
+                        deleteOne: {
+                            filter: { _id: variant._id }
+                        }
+                    });
+                } else {
+                    // If the variant is shared, just remove the patientId from the patients array
+                    bulkOpsVariants.push({
+                        updateOne: {
+                            filter: { _id: variant._id },
+                            update: { $pull: { patients: patientId } }
+                        }
+                    });
+                }
+            }
+
+            // Execute bulk operations for variants if any exist
+            if (bulkOpsVariants.length > 0) {
+                await variantCollection.bulkWrite(bulkOpsVariants, { session, ordered: false });
+            }
+
+            const result = await patientCollection.deleteOne({ _id: patientId });
+            if (result.deletedCount === 0) {
+                console.warn(`No patient found with ID: ${patientId}`);
+            } else {
+                console.log(`Deleted patient: ${result.deletedCount} document(s)`);
+            }
+
+            const endDeleteTime = Date.now();
+            console.log(`Deleted related records in ${(endDeleteTime - startDeleteTime) / 1000} seconds.`);
+
+            res.status(200).json({ message: 'Successfully deleted all records for the patient.' });
+        });
+    
+    } catch (error) {
+        console.error('Error during deletion:', error);
+        res.status(500).json({error: 'Error deleting patient data from MongoDB.'});
+    } finally {
+        session.endSession();
+    }
+};
+
+export { connect, addPatient, addVariants, deletePatient };
