@@ -210,8 +210,7 @@ const addVariants = async (req, res) => {
     }
 };
 
-const deletePatient = async(req, res) => {
-    
+const deletePatient = async (req, res) => {
     const { patient_id } = req.params;
 
     if (!patient_id) {
@@ -219,49 +218,51 @@ const deletePatient = async(req, res) => {
     }
 
     const patientId = new ObjectId(patient_id);
-
     const { patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection } = getCollections();
     const session = req.session;
 
-
     try {
-        await session.withTransaction(async() => {
-
-            console.log("Deleting related records...");
+        await session.withTransaction(async () => {
+            console.log(`Starting deletion process for patient ID: ${patientId}`);
             const startDeleteTime = Date.now();
 
-            const bulkOpsQuality = [
-                {
-                    deleteMany: {
-                        filter: {patient_id: patientId}
-                    }
+            // Prepare bulk delete operations for quality, info, and format collections
+            const bulkOpsQuality = [{
+                deleteMany: {
+                    filter: { patient_id: patientId }
                 }
-            ];
-            const bulkOpsInfo = [
-                {
-                    deleteMany: {
-                        filter: {patient_id: patientId}
-                    }
+            }];
+            const bulkOpsInfo = [{
+                deleteMany: {
+                    filter: { patient_id: patientId }
                 }
-            ];
-            const bulkOpsFormat = [
-                {
-                    deleteMany: {
-                        filter: {patient_id: patientId}
-                    }
+            }];
+            const bulkOpsFormat = [{
+                deleteMany: {
+                    filter: { patient_id: patientId }
                 }
-            ];
+            }];
 
+            // Execute bulk delete operations for quality, info, and format collections
+            console.log("Bulk processing quality, info, and format collections...");
             await Promise.all([
                 qualityCollection.bulkWrite(bulkOpsQuality, { session, ordered: false }),
                 infoCollection.bulkWrite(bulkOpsInfo, { session, ordered: false }),
                 formatCollection.bulkWrite(bulkOpsFormat, { session, ordered: false }),
             ]);
+            console.log("Completed bulk processing for quality, info, and format collections.");
 
-            const variants = await variantCollection.find({ patients: patientId }).toArray();
-            const bulkOpsVariants = [];
+            // Finding relevant variants to delete
+            console.log("Finding relevant variants to delete...");
 
-            for (const variant of variants) {
+            const chunkSize = 7000; // Adjust based on your needs
+            const cursor = variantCollection.find({ patients: patientId });
+            let bulkOpsVariants = [];
+            let variantCount = 0;
+
+            while (await cursor.hasNext()) {
+                const variant = await cursor.next();
+
                 if (variant.patients.length === 1) {
                     // If the variant only belongs to this patient, delete it
                     bulkOpsVariants.push({
@@ -278,13 +279,24 @@ const deletePatient = async(req, res) => {
                         }
                     });
                 }
+
+                variantCount++;
+
+                // Execute the bulk operation for variants in chunks
+                if (bulkOpsVariants.length === chunkSize) {
+                    await variantCollection.bulkWrite(bulkOpsVariants, { session, ordered: false });
+                    bulkOpsVariants.length = 0; // Reset for the next chunk
+                }
             }
 
-            // Execute bulk operations for variants if any exist
+            // Handle any remaining bulk operations
             if (bulkOpsVariants.length > 0) {
                 await variantCollection.bulkWrite(bulkOpsVariants, { session, ordered: false });
             }
 
+            console.log(`Deleted ${variantCount} variants in total.`);
+
+            // Finally, delete the patient from the patient collection
             const result = await patientCollection.deleteOne({ _id: patientId });
             if (result.deletedCount === 0) {
                 console.warn(`No patient found with ID: ${patientId}`);
@@ -297,10 +309,10 @@ const deletePatient = async(req, res) => {
 
             res.status(200).json({ message: 'Successfully deleted all records for the patient.' });
         });
-    
+
     } catch (error) {
         console.error('Error during deletion:', error);
-        res.status(500).json({error: 'Error deleting patient data from MongoDB.'});
+        res.status(500).json({ error: 'Error deleting patient data from MongoDB.' });
     } finally {
         session.endSession();
     }

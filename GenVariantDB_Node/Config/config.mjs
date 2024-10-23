@@ -17,7 +17,7 @@ const connectToMongoDB = async () => {
     try {
         client = new MongoClient(mongoURL, {
             maxPoolSize:pool,
-            serverSelectionTimeoutMS: 60000
+            serverSelectionTimeoutMS: 120000
         });
         await client.connect()
         console.log(`Connected to MongoDB with ${pool} connections`);
