@@ -3,7 +3,7 @@
       {
         "name": "GenVarDB_Jango_Backend",
         "script": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/gunicorn",
-        "args": "GenVariantDB.wsgi:application --bind 127.0.0.1:8000 --workers 4 --threads 2",
+        "args": "GenVariantDB.wsgi:application --bind 127.0.0.1:8000 --workers 2 --threads 2",
         "cwd": "./GenVariantDB",
         "exec_mode": "fork",
         "instances": "1",
@@ -11,6 +11,19 @@
         "wait_ready": true,
         "autorestart": true,
         "max_restarts": "10",
+        "interpreter": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/python3"
+      },
+      {
+        "name": "Celery_Workers",
+        "script": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/celery",
+        "args": " -A GenVariantDB worker --loglevel=info --concurrency=4",
+        "cwd": "./GenVariantDB",
+        "exec_mode": "fork",
+        "instances": 1,
+        "watch": false,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": 10,
         "interpreter": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/python3"
       },
       {

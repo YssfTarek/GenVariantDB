@@ -1,124 +1,75 @@
-import logging
+from django.http import JsonResponse, HttpResponse
+from .utils import prepare_variant_data
+from .tasks import process_vcf_data_and_send_batches, trigger_node_app
 from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpResponse, JsonResponse
-from .utils import chunk_data, prepare_variant_data
+from celery.result import GroupResult
 import requests
-import httpx
-import asyncio
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 def connect(request):
     if request.method == "GET":
         return HttpResponse("You are successfully connected to the Django Backend!")
     return HttpResponse("Invalid request method.")
 
-
 @csrf_exempt
-async def async_send_chunk(chunk, patient_id, semaphore):
-    node_url_variant = "http://localhost:3000/api/addVariants"
-    data_payload = {
-        "patient_id": patient_id,
-        "data": chunk
-    }
-
-    async with semaphore:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            logger.debug(f"Sending chunk to Node.js: {data_payload}")
-            try:
-                response = await client.post(node_url_variant, json=data_payload)
-                logger.debug(f"Response from Node.js for patient {patient_id}: {response.status_code}, {response.json()}")
-                return response
-            except httpx.RequestError as e:
-                logger.error(f"Request error sending chunk to Node.js for patient {patient_id}: {str(e)}")
-                return None  # Return None to indicate failure
-            except Exception as e:
-                logger.error(f"Error sending chunk to Node.js for patient {patient_id}: {str(e)}")
-                return None
-
-
-@csrf_exempt
-async def upload_variants_concurrently(combined_data, patient_id, max_concurrent_requests):
-    tasks = []
-    chunk_size = 1000
-    semaphore = asyncio.Semaphore(max_concurrent_requests)
-    for chunk in chunk_data(combined_data, chunk_size):
-        tasks.append(async_send_chunk(chunk, patient_id, semaphore))
-
-    responses = await asyncio.gather(*tasks)
-
-    # Collect errors where the response is None or status_code is not 201
-    errors = []
-    for response in responses:
-        if response is None:
-            errors.append({
-                "status": "Request failed",
-                "message": "No response from the server"
-            })
-        elif response.status_code != 201:
-            errors.append({
-                "status": response.status_code,
-                "message": response.json()  # Ensure to handle this in case of malformed JSON
-            })
-            logger.error(f"Error uploading variant: {response.status_code}, {response.json()}")
-
-    return errors  # Return the list of errors to be handled later
-
-@csrf_exempt
-def uploadReferencedDocs(request):
+def upload_referenced_docs(request):
     if request.method == 'POST':
         vcf_file = request.FILES.get('vcf_file')
         
         if not vcf_file:
-            logger.warning("Missing 'vcf_file'")
-            return HttpResponse("Missing 'vcf_file'", status=400)
-
-        # Get patient data from the request
+            print("Missing VCF_file")
+            return JsonResponse({"error": "Missing 'vcf_file'"}, status=400)
+        
         patient_data = {
             "patient_name": request.POST.get('patient_name'),
             "accession_number": request.POST.get('accession_number'),
             "hpo_terms": request.POST.get('hpo_terms')
         }
-
-        # First send the patient data and get the patient ID from the Node.js backend
+        
         node_url_patient = "http://localhost:3000/api/addPatient"
+        
         try:
-            logger.debug(f"Sending patient data: {patient_data}")
+            print(f"Sending patient data: {patient_data}")
             patient_response = requests.post(node_url_patient, json={"patient": patient_data})
             if patient_response.status_code != 201:
-                logger.error(f"Error adding patient: {patient_response.json()}")
-                return JsonResponse({"error": patient_response.json()}, status=patient_response.status_code)
-
-            # Extract patient ID from the response
+                print(f"Error adding patient: {patient_response.json()}")
+                return JsonResponse({"error": patient_response.json()}, status = patient_response.status_code)
+            
             patient_id = patient_response.json().get('patient_id')
-            logger.info(f"Successfully added patient, ID: {patient_id}")
+            print(f"Successfully added patient, ID: {patient_id}")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Node.js service error when adding patient: {str(e)}")
-            return JsonResponse({"error": f"Node.js service error when adding patient: {str(e)}"}, status=500)
-
-        # Prepare variant data and send in chunks
+            print(f"Node.js service error when adding patient: {str(e)}")
+            return JsonResponse({"error": f"Nodejs service error when adding patient: {str(e)}"}, status=500)
+        
         combined_data = prepare_variant_data(vcf_file)
-        logger.info(f"Prepared variant data for patient ID: {patient_id}")
-
-        max_concurrent_requests = 16
-        responses = asyncio.run(upload_variants_concurrently(combined_data, patient_id, max_concurrent_requests))
-
-        errors = []
-        for response in responses:
-            if response and response.status_code != 201:
-                errors.append({
-                    "status": response.status_code,
-                    "message": response.json()
-                })
-                logger.error(f"Error uploading variant: {response.status_code}, {response.json()}")
-
-        if errors:
-            logger.warning(f"Errors occurred during upload: {errors}")
-            return JsonResponse({'errors': errors}, status=500)
-
-        logger.info("Data successfully uploaded for patient ID: {patient_id}")
-        return JsonResponse({"message": "Data successfully uploaded"}, status=201)
+        print(f"Prepared variant data for patient ID: {patient_id}")
+        
+        max_concurrent_requests = 16 #set the max number of concurrent requests
+        
+        print("Begin processing...")
+        task_group_id = process_vcf_data_and_send_batches.delay(combined_data, patient_id, max_concurrent_requests)
+        
+        return JsonResponse({"task_group_id": task_group_id.id}, status=202)
     
-    logger.warning("Invalid request method")
-    return HttpResponse("Invalid request method", status=400)
+    return JsonResponse({"error": "Invalid request method"}, status=405)
+
+def check_task_status(request, task_group_id):
+    group_result = GroupResult.restore(task_group_id)
+
+    if not group_result:
+        return JsonResponse({"error": "Task group not found"}, status=404)
+    
+    if group_result.ready():
+        errors = [result for result in group_result.results if result.status != 'SUCCESS']
+        return JsonResponse({"status": "completed", "errors": errors}, status=200)
+
+    return JsonResponse({"status": "in-progress"}, status=202)
+
+def trigger_task(request):
+    # Trigger the Celery task asynchronously
+    task = trigger_node_app.delay()
+    
+    # Wait for the task result (get the result of the task execution)
+    result = task.get(timeout=10)  # Optional timeout for how long to wait for task completion
+
+    # Return the task result as a JSON response
+    return JsonResponse(result)

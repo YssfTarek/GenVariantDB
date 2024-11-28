@@ -7,7 +7,7 @@ const mongoURL = process.env.DB_URL;
 const dbName = process.env.DB;
 const pool = parseInt(process.env.POOL_SIZE) || 1
 
-let db, patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection;
+let db, patientCollection, variantCollection, qualityCollection, infoCollection, formatCollection, ops_meta;
 let client;
 let currentSession = null;
 
@@ -27,6 +27,7 @@ const connectToMongoDB = async () => {
         qualityCollection = db.collection('qualities');
         infoCollection = db.collection('infos');
         formatCollection = db.collection('formats');
+        ops_meta = db.collection('ops_meta');
     } catch (err) {
         console.error('Failed to connect to MongoDB:', err.message);
         if (retries > 0) {
@@ -48,7 +49,8 @@ const getCollections = () => {
         qualityCollection,
         infoCollection,
         formatCollection,
-        client
+        client,
+        ops_meta
     };
 };
 
