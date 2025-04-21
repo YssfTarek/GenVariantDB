@@ -1,3 +1,4 @@
-GenVariant_env/
-
+backend_env/
 .env
+node_modules/
+important_commands.txt

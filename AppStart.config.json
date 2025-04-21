@@ -1,0 +1,53 @@
+{
+    "apps": [
+      {
+        "name": "GenVarDB_Jango_Backend",
+        "script": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/gunicorn",
+        "args": "GenVariantDB.wsgi:application --bind 127.0.0.1:8000 --workers 2 --threads 2",
+        "cwd": "./GenVariantDB",
+        "exec_mode": "fork",
+        "instances": "1",
+        "watch": true,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": "10",
+        "interpreter": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/python3"
+      },
+      {
+        "name": "Celery_Workers",
+        "script": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/celery",
+        "args": " -A GenVariantDB worker --loglevel=info --concurrency=4",
+        "cwd": "./GenVariantDB",
+        "exec_mode": "fork",
+        "instances": 1,
+        "watch": false,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": 10,
+        "interpreter": "/Users/youssef/Documents/GenVariantDB/GenVariantDB/backend_env/bin/python3"
+      },
+      {
+        "name": "GenVarDB_Node_Backend",
+        "script": "server.mjs",
+        "cwd": "./GenVariantDB_Node",
+        "exec_mode": "cluster",
+        "instances": "20",
+        "watch": true,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": "10",
+        "max_memory_restart": "2G"
+      },
+      {
+        "name": "GenVarDB_Gateway",
+        "script": "gateway.mjs",
+        "cwd": "./Gateway",
+        "exec_mode": "fork",
+        "instances": "1",
+        "watch": true,
+        "wait_ready": true,
+        "autorestart": true,
+        "max_restarts": "10"
+      }
+    ]
+  }
