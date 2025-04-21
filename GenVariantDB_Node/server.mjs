@@ -2,8 +2,10 @@ import dotenv from 'dotenv';
 import express from 'express';
 import cors from 'cors';
 import parseRoutes from './Routes/ParseRoutes.mjs';
-import { connectToMongoDB, gracefulShutdown, startSession, endSession } from './Config/config.mjs';
+import { connectToMongoDB, gracefulShutdown } from './Config/config.mjs';
 import sessionMiddleware from './Middleware/SessionMiddleware.mjs'
+import { listenForTasks } from './Controllers/taskController.mjs';
+import monitoringRoutes from './Routes/monitoringRoutes.mjs'
 
 dotenv.config();
 
@@ -25,12 +27,14 @@ const startServer = async () => {
     });
 
     app.use('/api', parseRoutes);
+    app.use('/api/monitoring', monitoringRoutes)
 
     const server = app.listen(PORT, () => {
         console.log(`Server is running on http://localhost:${PORT}`);
         process.send('ready');
     });
-    
+
+    listenForTasks().catch((err) => console.error('Error in Pub/Sub listener:', err));
 
     const shutdown = async() => {
         console.log('Received SIGINT. Shutting down gracefully...');

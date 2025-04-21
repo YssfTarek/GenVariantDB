@@ -1,5 +1,7 @@
 from io import StringIO
 import pandas as pd
+import redis
+import json
 
 def read_vcf(vcf_file):
     header_line = None
@@ -96,3 +98,16 @@ def prepare_variant_data(vcf_file):
         })
 
     return combined_data
+
+redis_client = redis.StrictRedis(host="localhost", port=6379, db=0)
+
+def publish_tasks_to_redis(vcf_data, chunk_size, patient_id):
+    chunks = [vcf_data[i:i + chunk_size] for i in range(0, len(vcf_data), chunk_size)]
+    for i, chunk in enumerate(chunks):
+        task = {
+            "task_id": f"{patient_id}-{i}",
+            "patient_id": patient_id,
+            "chunk":chunk,
+        }
+        redis_client.rpush("vcf_tasks", json.dumps(task))
+    redis_client.publish("tasks_ready_chanel", patient_id)
